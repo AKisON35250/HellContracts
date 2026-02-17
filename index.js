@@ -7,16 +7,16 @@ dotenv.config();
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 
 // Server & Rollen IDs
-const GUILD_ID = "DEIN_SERVER_ID"; // z.B. "123456789012345678"
-const PLAYER_ROLE = "ID_SPIELER";   // z.B. "111222333444555666"
-const ADMIN_ROLE = "ID_ADMIN";      // z.B. "777888999000111222"
+const GUILD_ID = "DEIN_SERVER_ID"; // Server ID
+const PLAYER_ROLE = "ID_SPIELER";   // Spieler Rolle
+const ADMIN_ROLE = "ID_ADMIN";      // Admin Rolle
 
-// Channels
-const CHANNEL_CREATE = "ID_AUFTRAG_ERSTELLEN"; // privater Erstellungs-Channel
+// Channel IDs
+const CHANNEL_CREATE = "ID_AUFTRAG_ERSTELLEN"; // Auftrag erstellen (privat)
 const CHANNEL_MARKET = "ID_MARKTPLATZ";        // Marktplatz
 const CHANNEL_ARCHIVE = "ID_ARCHIV";           // Archiv
 const CHANNEL_LOGS = "ID_LOGS";               // Logs
-const CHANNEL_ADMIN = "ID_ADMIN";             // Admin Panel
+const CHANNEL_ADMIN = "ID_ADMIN_PANEL";       // Admin Panel
 const CHANNEL_MISSIONS = "ID_MISSIONEN";      // Missionen
 
 // ---------------- CLIENT ----------------
@@ -32,12 +32,12 @@ const client = new Client({
 
 // ---------------- CACHE ----------------
 const openCreations = new Map(); // Map<ChannelID, { userId, type, description, reward, anonymous }>
-const activeAssignments = new Map(); // Map<MessageID, { creatorId, takerId, interestedIds: [] }>
 
 // ---------------- READY ----------------
 client.once(Events.ClientReady, async () => {
     console.log(`Eingeloggt als ${client.user.tag}`);
-    // Optional: Marktplatz Bot-Nachricht erstellen, falls nicht vorhanden
+
+    // Marktplatz Bot-Nachricht erstellen, falls nicht vorhanden
     const marketChannel = await client.channels.fetch(CHANNEL_MARKET);
     if (marketChannel.isTextBased()) {
         const messages = await marketChannel.messages.fetch({ limit: 50 });
@@ -62,6 +62,7 @@ client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isButton()) return;
     const member = interaction.member;
 
+    // Berechtigungen prüfen
     if (!member.roles.cache.has(PLAYER_ROLE) && !member.roles.cache.has(ADMIN_ROLE)) {
         return interaction.reply({ content: "Du hast keine Berechtigung.", ephemeral: true });
     }
@@ -87,7 +88,7 @@ client.on(Events.InteractionCreate, async interaction => {
         });
 
         openCreations.set(createdChannel.id, { userId: member.id, type, description: null, reward: null, anonymous: false });
-        await createdChannel.send(`📜 **FINAL HELL – ${type.toUpperCase()} ERSTELLEN**\nBeschreibe hier dein Anliegen. Danach fragt der Bot nach Preis/Belohnung und Anonymwahl.`);
+        await createdChannel.send(`📜 **FINAL HELL – ${type.toUpperCase()} ERSTELLEN**\nSchreibe hier dein Anliegen. Danach fragt der Bot nach Preis/Belohnung und Anonymwahl.`);
 
         return interaction.reply({ content: `Privater Erstellungs-Channel erstellt: ${createdChannel}`, ephemeral: true });
     }
@@ -99,7 +100,6 @@ client.on(Events.InteractionCreate, async interaction => {
 
         creation.anonymous = interaction.customId === 'anonymous_yes';
 
-        // Posten im Marktplatz
         const marketChannel = await client.channels.fetch(CHANNEL_MARKET);
         const embed = new EmbedBuilder()
             .setTitle(creation.type.toUpperCase())
@@ -119,7 +119,6 @@ client.on(Events.InteractionCreate, async interaction => {
         const logs = await client.channels.fetch(CHANNEL_LOGS);
         await logs.send(`<@${creation.userId}> hat einen Auftrag erstellt: ${creation.type} (Anonym: ${creation.anonymous})`);
 
-        // Privater Channel löschen
         await interaction.channel.delete();
         openCreations.delete(interaction.channel.id);
         return interaction.reply({ content: `Auftrag veröffentlicht!`, ephemeral: true });
@@ -152,4 +151,3 @@ client.on(Events.MessageCreate, async message => {
 
 // ---------------- LOGIN ----------------
 client.login(DISCORD_TOKEN);
-
