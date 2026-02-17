@@ -1,0 +1,24 @@
+{
+  "name": "final-hell-bot",
+  "version": "1.0.0",
+  "description": "Discord Bot für FINAL HELL RP Server: Marktplatz, Aufträge & Missionen",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "rp",
+    "final-hell",
+    "marktplatz",
+    "missionen"
+  ],
+  "author": "DeinName",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.12.0",
+    "dotenv": "^16.3.1"
+  }
+}
