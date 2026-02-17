@@ -4,20 +4,17 @@ import dotenv from "dotenv";
 dotenv.config();
 
 // ---------------- CONFIG ----------------
+// Alles über Environment Variables von Render
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-
-// Server & Rollen IDs (Platzhalter, bitte ersetzen)
-const GUILD_ID = "DEIN_SERVER_ID"; 
-const PLAYER_ROLE = "ID_SPIELER";   
-const ADMIN_ROLE = "ID_ADMIN";      
-
-// Channel IDs (Platzhalter)
-const CHANNEL_CREATE = "ID_AUFTRAG_ERSTELLEN"; 
-const CHANNEL_MARKET = "ID_MARKTPLATZ";        
-const CHANNEL_ARCHIVE = "ID_ARCHIV";           
-const CHANNEL_LOGS = "ID_LOGS";               
-const CHANNEL_ADMIN = "ID_ADMIN_PANEL";       
-const CHANNEL_MISSIONS = "ID_MISSIONEN";      
+const GUILD_ID = process.env.GUILD_ID;
+const PLAYER_ROLE = process.env.PLAYER_ROLE;
+const ADMIN_ROLE = process.env.ADMIN_ROLE;
+const CHANNEL_CREATE = process.env.CHANNEL_CREATE;
+const CHANNEL_MARKET = process.env.CHANNEL_MARKET;
+const CHANNEL_ARCHIVE = process.env.CHANNEL_ARCHIVE;
+const CHANNEL_LOGS = process.env.CHANNEL_LOGS;
+const CHANNEL_ADMIN = process.env.CHANNEL_ADMIN;
+const CHANNEL_MISSIONS = process.env.CHANNEL_MISSIONS;
 
 // ---------------- CLIENT ----------------
 const client = new Client({
@@ -32,13 +29,15 @@ const client = new Client({
 
 // ---------------- CACHE ----------------
 const openCreations = new Map(); // Map<ChannelID, { userId, type, description, reward, anonymous }>
-const activeAssignments = new Map(); // Map<EmbedMessageID, { creatorId, takerId, interestedIds: [] }>
 
 // ---------------- READY ----------------
 client.once(Events.ClientReady, async () => {
     console.log(`Eingeloggt als ${client.user.tag}`);
+
     try {
         const guild = await client.guilds.fetch(GUILD_ID);
+
+        // Marktplatz Channel
         const marketChannel = await guild.channels.fetch(CHANNEL_MARKET);
         if (!marketChannel.isTextBased()) throw new Error("Marktplatz Channel ist kein Textkanal");
 
@@ -56,6 +55,7 @@ client.once(Events.ClientReady, async () => {
                     new ButtonBuilder().setCustomId('create_suche').setLabel('🔍 Ich suche').setStyle(ButtonStyle.Primary),
                     new ButtonBuilder().setCustomId('create_biete').setLabel('🎁 Ich biete').setStyle(ButtonStyle.Primary)
                 );
+
             await marketChannel.send({ content: "📜 **FINAL HELL – MARKTPLATZ**\nWähle aus, was du erstellen möchtest:", components: [row] });
         }
 
@@ -86,7 +86,7 @@ client.on(Events.InteractionCreate, async interaction => {
             const createdChannel = await guild.channels.create({
                 name: channelName,
                 type: ChannelType.GuildText,
-                parent: interaction.channel.parentId || null,
+                parent: null, // optional Parent
                 permissionOverwrites: [
                     { id: guild.roles.everyone, deny: [PermissionsBitField.Flags.ViewChannel] },
                     { id: PLAYER_ROLE, allow: [PermissionsBitField.Flags.ViewChannel], deny: [PermissionsBitField.Flags.SendMessages] },
@@ -103,44 +103,6 @@ client.on(Events.InteractionCreate, async interaction => {
         } catch (err) {
             console.error("Fehler beim Erstellen des Channels:", err);
             return interaction.reply({ content: "Fehler beim Erstellen des privaten Channels.", ephemeral: true });
-        }
-    }
-
-    // ----- Anonymwahl -----
-    if (interaction.customId === 'anonymous_yes' || interaction.customId === 'anonymous_no') {
-        const creation = openCreations.get(interaction.channel.id);
-        if (!creation) return;
-
-        creation.anonymous = interaction.customId === 'anonymous_yes';
-
-        try {
-            const guild = await client.guilds.fetch(GUILD_ID);
-            const marketChannel = await guild.channels.fetch(CHANNEL_MARKET);
-
-            const embed = new EmbedBuilder()
-                .setTitle(creation.type.toUpperCase())
-                .setDescription(`**Beschreibung:** ${creation.description}\n**Belohnung:** ${creation.reward}\n**Erstellt von:** ${creation.anonymous ? '🕶️ Anonymer Auftraggeber' : `<@${creation.userId}>`}\n**Status:** 🟢 Offen`)
-                .setColor(0xff0000);
-
-            const row = new ActionRowBuilder()
-                .addComponents(
-                    new ButtonBuilder().setCustomId(`take_${interaction.channel.id}`).setLabel('✅ Annehmen').setStyle(ButtonStyle.Success),
-                    new ButtonBuilder().setCustomId(`interest_${interaction.channel.id}`).setLabel('🔔 Interesse zeigen').setStyle(ButtonStyle.Primary),
-                    new ButtonBuilder().setCustomId(`withdraw_${interaction.channel.id}`).setLabel('❌ Zurückziehen').setStyle(ButtonStyle.Danger),
-                    new ButtonBuilder().setCustomId(`finish_${interaction.channel.id}`).setLabel('🔒 Abschließen').setStyle(ButtonStyle.Secondary)
-                );
-
-            await marketChannel.send({ embeds: [embed], components: [row] });
-
-            const logs = await guild.channels.fetch(CHANNEL_LOGS);
-            await logs.send(`<@${creation.userId}> hat einen Auftrag erstellt: ${creation.type} (Anonym: ${creation.anonymous})`);
-
-            await interaction.channel.delete();
-            openCreations.delete(interaction.channel.id);
-            return interaction.reply({ content: `Auftrag veröffentlicht!`, ephemeral: true });
-
-        } catch (err) {
-            console.error("Fehler beim Posten des Auftrags:", err);
         }
     }
 });
