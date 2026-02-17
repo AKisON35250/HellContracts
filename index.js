@@ -6,18 +6,18 @@ dotenv.config();
 // ---------------- CONFIG ----------------
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 
-// Server & Rollen IDs
-const GUILD_ID = "DEIN_SERVER_ID"; // Server ID
-const PLAYER_ROLE = "ID_SPIELER";   // Spieler Rolle
-const ADMIN_ROLE = "ID_ADMIN";      // Admin Rolle
+// Server & Rollen IDs (Platzhalter, bitte ersetzen)
+const GUILD_ID = "DEIN_SERVER_ID"; 
+const PLAYER_ROLE = "ID_SPIELER";   
+const ADMIN_ROLE = "ID_ADMIN";      
 
-// Channel IDs
-const CHANNEL_CREATE = "ID_AUFTRAG_ERSTELLEN"; // Auftrag erstellen (privat)
-const CHANNEL_MARKET = "ID_MARKTPLATZ";        // Marktplatz
-const CHANNEL_ARCHIVE = "ID_ARCHIV";           // Archiv
-const CHANNEL_LOGS = "ID_LOGS";               // Logs
-const CHANNEL_ADMIN = "ID_ADMIN_PANEL";       // Admin Panel
-const CHANNEL_MISSIONS = "ID_MISSIONEN";      // Missionen
+// Channel IDs (Platzhalter)
+const CHANNEL_CREATE = "ID_AUFTRAG_ERSTELLEN"; 
+const CHANNEL_MARKET = "ID_MARKTPLATZ";        
+const CHANNEL_ARCHIVE = "ID_ARCHIV";           
+const CHANNEL_LOGS = "ID_LOGS";               
+const CHANNEL_ADMIN = "ID_ADMIN_PANEL";       
+const CHANNEL_MISSIONS = "ID_MISSIONEN";      
 
 // ---------------- CLIENT ----------------
 const client = new Client({
@@ -32,16 +32,20 @@ const client = new Client({
 
 // ---------------- CACHE ----------------
 const openCreations = new Map(); // Map<ChannelID, { userId, type, description, reward, anonymous }>
+const activeAssignments = new Map(); // Map<EmbedMessageID, { creatorId, takerId, interestedIds: [] }>
 
 // ---------------- READY ----------------
 client.once(Events.ClientReady, async () => {
     console.log(`Eingeloggt als ${client.user.tag}`);
+    try {
+        const guild = await client.guilds.fetch(GUILD_ID);
+        const marketChannel = await guild.channels.fetch(CHANNEL_MARKET);
+        if (!marketChannel.isTextBased()) throw new Error("Marktplatz Channel ist kein Textkanal");
 
-    // Marktplatz Bot-Nachricht erstellen, falls nicht vorhanden
-    const marketChannel = await client.channels.fetch(CHANNEL_MARKET);
-    if (marketChannel.isTextBased()) {
+        // Prüfen, ob Bot-Nachricht schon existiert
         const messages = await marketChannel.messages.fetch({ limit: 50 });
         const botMessage = messages.find(m => m.author.id === client.user.id && m.content.includes("FINAL HELL – MARKTPLATZ"));
+
         if (!botMessage) {
             const row = new ActionRowBuilder()
                 .addComponents(
@@ -54,6 +58,9 @@ client.once(Events.ClientReady, async () => {
                 );
             await marketChannel.send({ content: "📜 **FINAL HELL – MARKTPLATZ**\nWähle aus, was du erstellen möchtest:", components: [row] });
         }
+
+    } catch (err) {
+        console.error("Fehler beim Laden der Channels:", err);
     }
 });
 
@@ -74,23 +81,29 @@ client.on(Events.InteractionCreate, async interaction => {
         const randomId = Math.floor(Math.random() * 9000 + 1000);
         const channelName = `erstellung-${username}-${randomId}`;
 
-        const guild = interaction.guild;
-        const createdChannel = await guild.channels.create({
-            name: channelName,
-            type: ChannelType.GuildText,
-            parent: interaction.channel.parentId,
-            permissionOverwrites: [
-                { id: guild.roles.everyone, deny: [PermissionsBitField.Flags.ViewChannel] },
-                { id: PLAYER_ROLE, allow: [PermissionsBitField.Flags.ViewChannel], deny: [PermissionsBitField.Flags.SendMessages] },
-                { id: ADMIN_ROLE, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ManageChannels] },
-                { id: member.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
-            ]
-        });
+        try {
+            const guild = await client.guilds.fetch(GUILD_ID);
+            const createdChannel = await guild.channels.create({
+                name: channelName,
+                type: ChannelType.GuildText,
+                parent: interaction.channel.parentId || null,
+                permissionOverwrites: [
+                    { id: guild.roles.everyone, deny: [PermissionsBitField.Flags.ViewChannel] },
+                    { id: PLAYER_ROLE, allow: [PermissionsBitField.Flags.ViewChannel], deny: [PermissionsBitField.Flags.SendMessages] },
+                    { id: ADMIN_ROLE, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ManageChannels] },
+                    { id: member.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
+                ]
+            });
 
-        openCreations.set(createdChannel.id, { userId: member.id, type, description: null, reward: null, anonymous: false });
-        await createdChannel.send(`📜 **FINAL HELL – ${type.toUpperCase()} ERSTELLEN**\nSchreibe hier dein Anliegen. Danach fragt der Bot nach Preis/Belohnung und Anonymwahl.`);
+            openCreations.set(createdChannel.id, { userId: member.id, type, description: null, reward: null, anonymous: false });
+            await createdChannel.send(`📜 **FINAL HELL – ${type.toUpperCase()} ERSTELLEN**\nSchreibe hier dein Anliegen. Danach fragt der Bot nach Preis/Belohnung und Anonymwahl.`);
 
-        return interaction.reply({ content: `Privater Erstellungs-Channel erstellt: ${createdChannel}`, ephemeral: true });
+            return interaction.reply({ content: `Privater Erstellungs-Channel erstellt: ${createdChannel}`, ephemeral: true });
+
+        } catch (err) {
+            console.error("Fehler beim Erstellen des Channels:", err);
+            return interaction.reply({ content: "Fehler beim Erstellen des privaten Channels.", ephemeral: true });
+        }
     }
 
     // ----- Anonymwahl -----
@@ -100,28 +113,35 @@ client.on(Events.InteractionCreate, async interaction => {
 
         creation.anonymous = interaction.customId === 'anonymous_yes';
 
-        const marketChannel = await client.channels.fetch(CHANNEL_MARKET);
-        const embed = new EmbedBuilder()
-            .setTitle(creation.type.toUpperCase())
-            .setDescription(`**Beschreibung:** ${creation.description}\n**Belohnung:** ${creation.reward}\n**Erstellt von:** ${creation.anonymous ? '🕶️ Anonymer Auftraggeber' : `<@${creation.userId}>`}\n**Status:** 🟢 Offen`)
-            .setColor(0xff0000);
+        try {
+            const guild = await client.guilds.fetch(GUILD_ID);
+            const marketChannel = await guild.channels.fetch(CHANNEL_MARKET);
 
-        const row = new ActionRowBuilder()
-            .addComponents(
-                new ButtonBuilder().setCustomId(`take_${interaction.channel.id}`).setLabel('✅ Annehmen').setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId(`interest_${interaction.channel.id}`).setLabel('🔔 Interesse zeigen').setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId(`withdraw_${interaction.channel.id}`).setLabel('❌ Zurückziehen').setStyle(ButtonStyle.Danger),
-                new ButtonBuilder().setCustomId(`finish_${interaction.channel.id}`).setLabel('🔒 Abschließen').setStyle(ButtonStyle.Secondary)
-            );
+            const embed = new EmbedBuilder()
+                .setTitle(creation.type.toUpperCase())
+                .setDescription(`**Beschreibung:** ${creation.description}\n**Belohnung:** ${creation.reward}\n**Erstellt von:** ${creation.anonymous ? '🕶️ Anonymer Auftraggeber' : `<@${creation.userId}>`}\n**Status:** 🟢 Offen`)
+                .setColor(0xff0000);
 
-        await marketChannel.send({ embeds: [embed], components: [row] });
+            const row = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder().setCustomId(`take_${interaction.channel.id}`).setLabel('✅ Annehmen').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId(`interest_${interaction.channel.id}`).setLabel('🔔 Interesse zeigen').setStyle(ButtonStyle.Primary),
+                    new ButtonBuilder().setCustomId(`withdraw_${interaction.channel.id}`).setLabel('❌ Zurückziehen').setStyle(ButtonStyle.Danger),
+                    new ButtonBuilder().setCustomId(`finish_${interaction.channel.id}`).setLabel('🔒 Abschließen').setStyle(ButtonStyle.Secondary)
+                );
 
-        const logs = await client.channels.fetch(CHANNEL_LOGS);
-        await logs.send(`<@${creation.userId}> hat einen Auftrag erstellt: ${creation.type} (Anonym: ${creation.anonymous})`);
+            await marketChannel.send({ embeds: [embed], components: [row] });
 
-        await interaction.channel.delete();
-        openCreations.delete(interaction.channel.id);
-        return interaction.reply({ content: `Auftrag veröffentlicht!`, ephemeral: true });
+            const logs = await guild.channels.fetch(CHANNEL_LOGS);
+            await logs.send(`<@${creation.userId}> hat einen Auftrag erstellt: ${creation.type} (Anonym: ${creation.anonymous})`);
+
+            await interaction.channel.delete();
+            openCreations.delete(interaction.channel.id);
+            return interaction.reply({ content: `Auftrag veröffentlicht!`, ephemeral: true });
+
+        } catch (err) {
+            console.error("Fehler beim Posten des Auftrags:", err);
+        }
     }
 });
 
