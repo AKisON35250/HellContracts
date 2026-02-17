@@ -4,17 +4,17 @@ import dotenv from "dotenv";
 dotenv.config();
 
 // ---------------- CONFIG ----------------
-// Alles über Environment Variables von Render
-const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const GUILD_ID = process.env.GUILD_ID;
-const PLAYER_ROLE = process.env.PLAYER_ROLE;
-const ADMIN_ROLE = process.env.ADMIN_ROLE;
-const CHANNEL_CREATE = process.env.CHANNEL_CREATE;
-const CHANNEL_MARKET = process.env.CHANNEL_MARKET;
-const CHANNEL_ARCHIVE = process.env.CHANNEL_ARCHIVE;
-const CHANNEL_LOGS = process.env.CHANNEL_LOGS;
-const CHANNEL_ADMIN = process.env.CHANNEL_ADMIN;
-const CHANNEL_MISSIONS = process.env.CHANNEL_MISSIONS;
+// Werte in Render als Environment Variables setzen
+const DISCORD_TOKEN = process.env.DISCORD_TOKEN;   // Dein Bot Token
+const GUILD_ID = process.env.GUILD_ID;             // Server-ID
+const PLAYER_ROLE = process.env.PLAYER_ROLE;       // Spieler-Rolle
+const ADMIN_ROLE = process.env.ADMIN_ROLE;         // Admin-Rolle
+const CHANNEL_CREATE = process.env.CHANNEL_CREATE; // Erstellungs-Channel
+const CHANNEL_MARKET = process.env.CHANNEL_MARKET; // Marktplatz-Channel
+const CHANNEL_ARCHIVE = process.env.CHANNEL_ARCHIVE; // Archiv-Channel
+const CHANNEL_LOGS = process.env.CHANNEL_LOGS;       // Logs
+const CHANNEL_ADMIN = process.env.CHANNEL_ADMIN;     // Admin Panel
+const CHANNEL_MISSIONS = process.env.CHANNEL_MISSIONS; // Missionen-Channel
 
 // ---------------- CLIENT ----------------
 const client = new Client({
@@ -36,27 +36,30 @@ client.once(Events.ClientReady, async () => {
 
     try {
         const guild = await client.guilds.fetch(GUILD_ID);
-
-        // Marktplatz Channel
         const marketChannel = await guild.channels.fetch(CHANNEL_MARKET);
         if (!marketChannel.isTextBased()) throw new Error("Marktplatz Channel ist kein Textkanal");
 
-        // Prüfen, ob Bot-Nachricht schon existiert
+        // Prüfen, ob Bot-Nachricht existiert
         const messages = await marketChannel.messages.fetch({ limit: 50 });
         const botMessage = messages.find(m => m.author.id === client.user.id && m.content.includes("FINAL HELL – MARKTPLATZ"));
 
         if (!botMessage) {
-            const row = new ActionRowBuilder()
-                .addComponents(
-                    new ButtonBuilder().setCustomId('create_auftrag').setLabel('💰 Auftrag').setStyle(ButtonStyle.Primary),
-                    new ButtonBuilder().setCustomId('create_ankauf').setLabel('🛒 Ankauf').setStyle(ButtonStyle.Primary),
-                    new ButtonBuilder().setCustomId('create_verkauf').setLabel('📦 Verkauf').setStyle(ButtonStyle.Primary),
-                    new ButtonBuilder().setCustomId('create_hilfe').setLabel('🆘 Hilfe').setStyle(ButtonStyle.Primary),
-                    new ButtonBuilder().setCustomId('create_suche').setLabel('🔍 Ich suche').setStyle(ButtonStyle.Primary),
-                    new ButtonBuilder().setCustomId('create_biete').setLabel('🎁 Ich biete').setStyle(ButtonStyle.Primary)
-                );
+            // 6 Buttons → in 2 Rows aufteilen
+            const row1 = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('create_auftrag').setLabel('💰 Auftrag').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('create_ankauf').setLabel('🛒 Ankauf').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('create_verkauf').setLabel('📦 Verkauf').setStyle(ButtonStyle.Primary)
+            );
+            const row2 = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('create_hilfe').setLabel('🆘 Hilfe').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('create_suche').setLabel('🔍 Ich suche').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('create_biete').setLabel('🎁 Ich biete').setStyle(ButtonStyle.Primary)
+            );
 
-            await marketChannel.send({ content: "📜 **FINAL HELL – MARKTPLATZ**\nWähle aus, was du erstellen möchtest:", components: [row] });
+            await marketChannel.send({
+                content: "📜 **FINAL HELL – MARKTPLATZ**\nWähle aus, was du erstellen möchtest:",
+                components: [row1, row2]
+            });
         }
 
     } catch (err) {
@@ -86,7 +89,7 @@ client.on(Events.InteractionCreate, async interaction => {
             const createdChannel = await guild.channels.create({
                 name: channelName,
                 type: ChannelType.GuildText,
-                parent: null, // optional Parent
+                parent: null,
                 permissionOverwrites: [
                     { id: guild.roles.everyone, deny: [PermissionsBitField.Flags.ViewChannel] },
                     { id: PLAYER_ROLE, allow: [PermissionsBitField.Flags.ViewChannel], deny: [PermissionsBitField.Flags.SendMessages] },
@@ -103,6 +106,43 @@ client.on(Events.InteractionCreate, async interaction => {
         } catch (err) {
             console.error("Fehler beim Erstellen des Channels:", err);
             return interaction.reply({ content: "Fehler beim Erstellen des privaten Channels.", ephemeral: true });
+        }
+    }
+
+    // ----- Anonymwahl -----
+    if (interaction.customId === 'anonymous_yes' || interaction.customId === 'anonymous_no') {
+        const creation = openCreations.get(interaction.channel.id);
+        if (!creation) return;
+
+        creation.anonymous = interaction.customId === 'anonymous_yes';
+        try {
+            const guild = await client.guilds.fetch(GUILD_ID);
+            const marketChannel = await guild.channels.fetch(CHANNEL_MARKET);
+
+            const embed = new EmbedBuilder()
+                .setTitle(creation.type.toUpperCase())
+                .setDescription(`**Beschreibung:** ${creation.description}\n**Belohnung:** ${creation.reward}\n**Erstellt von:** ${creation.anonymous ? '🕶️ Anonymer Auftraggeber' : `<@${creation.userId}>`}\n**Status:** 🟢 Offen`)
+                .setColor(0xff0000);
+
+            const row = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder().setCustomId(`take_${interaction.channel.id}`).setLabel('✅ Annehmen').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId(`interest_${interaction.channel.id}`).setLabel('🔔 Interesse zeigen').setStyle(ButtonStyle.Primary),
+                    new ButtonBuilder().setCustomId(`withdraw_${interaction.channel.id}`).setLabel('❌ Zurückziehen').setStyle(ButtonStyle.Danger),
+                    new ButtonBuilder().setCustomId(`finish_${interaction.channel.id}`).setLabel('🔒 Abschließen').setStyle(ButtonStyle.Secondary)
+                );
+
+            await marketChannel.send({ embeds: [embed], components: [row] });
+
+            const logs = await guild.channels.fetch(CHANNEL_LOGS);
+            await logs.send(`<@${creation.userId}> hat einen Auftrag erstellt: ${creation.type} (Anonym: ${creation.anonymous})`);
+
+            await interaction.channel.delete();
+            openCreations.delete(interaction.channel.id);
+            return interaction.reply({ content: `Auftrag veröffentlicht!`, ephemeral: true });
+
+        } catch (err) {
+            console.error("Fehler beim Posten des Auftrags:", err);
         }
     }
 });
